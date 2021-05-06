@@ -1,0 +1,774 @@
+#!/bin/bash
+
+## Created by: Mairi (https://tmairi.github.io)
+##
+## Hex-Converter (hexconv):
+## ------------------------
+##	A BASH script designed to take a hexadecimal string as an input value and convert it 
+##	into various other formats, including; ASCII, Binary, Decimal, etc.
+##
+## AUTHOR NOTES:
+## -------------
+##	Since delving into the world of reverse-engineering, I have been playing around a lot
+##	recently with a disassembly tool called radare2. Throughout this learning process, I have
+##	written basic C programs to aid with understanding how to disassemble the resulting 
+##	compiled binary.
+##
+##	One of the programs I wrote was simply a series of variables, initalised with varying
+##	values. One of these values was a floating-point number specified as a 'double' data 
+##	type. Upon disassembling the binary, I found that a hexadecimal value was being pushed 
+##	into the register corresponding with this variable. However, I was unsure how to interpret
+##	the hexadecimal value.
+##
+##	Thus began my research into the fascinating mathematics behind floating-point binary
+##	numbers. Wherein I discovered how to manually convert a given 32-bit (Short Real) or 
+##	64-bit (Long Real) hexadecimal string into a floating-point number.
+##
+##	As always, I decided to conclude my research by creating a script to do this conversion
+##	for me. To which I chose BASH, since I predominantly work on Linux systems and I believed 
+##	it would provide an interesting challenge.
+##
+##	Interestingly, I had created a Hexadecimal-Converter BASH script some years ago, which 
+##	was very basic and only converted a given string into ASCII, Binary and Decimal. I was
+##	able to re-purpose some of its code into the BASH script outlined below. To make things
+##	extra challenging for myself, I decided to use pure BASH logic and remove any reliance
+##	on external tools such as 'bc'.
+##
+## CHANGELOG:
+## ----------
+##	-- v1.00 (2017-07-15):	An old script I had written to do basic hexadecimal conversions.
+##				This script was used as a rough template
+##	-- v2.00 (2021-05-03):	Re-wrote the conversion logic from the old script to rely less on 
+##				external tools such as 'bc' and streamlined the code
+##	-- v2.02 (2021-05-03):	Added much more sanitisation to ensure that the output remains
+##				clean and user-readable
+##	-- v2.03 (2021-05-03):	Hotfix for a logic error I overlooked when converting to ASCII
+##	-- v2.04 (2021-05-03):	Implemented a function for converting a 32-bit hexadecimal string 
+##				to a single precision floating-point number
+##	-- v2.05 (2021-05-03):	Further testing conducted on the floating point conversion. Altered
+##				some of the logic to remain consistent when dealing with negative
+##				numbers
+##	-- v2.06 (2021-05-04):	Implemented logic for 64-bit and 128-bit conversions into their
+##				respective floating-point value. Tested and are working properly
+##	-- v2.07 (2021-05-04):	Implemented logic for 16-bit conversions into half-precision
+##				floating-point numbers
+##	-- v2.50 (2021-05-04):	Fixed multiple errors with null bytes. Fixed an issue with the 
+##				calculation of floating numbers where the exponent was all 0s. 
+##				Implemented and tested new scripts for handling ASCII conversions.
+##				Made various improvements to the code and removed many repeated
+##				lines
+##	-- v2.60 (2021-05-05):	Completely reworked the logic used to calculate floating point
+##				values. Added more precision to the output of floating point
+##				numbers using 'awk'. All tested and converting as intended
+##	-- v2.61 (2021-05-05):	Hotfix for an error which was thrown when a single argument was
+##				supplied to the script
+##
+## KNOWN ISSUES / FUTURE CHANGES:
+## ------------------------------
+##	There are issues in the ASCII conversion when handling NULL bytes (Caused by how BASH
+##	handles parameters as C-strings). I have tried to account for this as much as possible in 
+##	the code.
+##
+##	This script is currently only capable of handling 16-bit, 32-bit, 64-bit and 128-bit 
+##	hexadecimal values for conversion into floating-point numbers. Logic supporting 8-bit
+##	(or other) values might be implemented in a future revision.
+##
+
+#####################################################################
+##      PLEASE DO NOT EDIT THE SCRIPT BEYOND THIS POINT !!!        ##
+#####################################################################
+
+hexconv_version="Version 2.61"
+
+usage()
+{
+cat <<EOF
+NAME
+	hexconv - Hexadecimal string conversion
+	$hexconv_version
+
+USAGE
+	./hexconv [-arg/--argument] [HEXADECIMAL STRING]
+
+DESCRIPTION
+
+	A BASH script designed to convert hexadecimal strings into various formats
+
+ARGUMENTS
+	
+	-a, --ascii		Convert a hexadecimal string into ASCII
+	-b, --binary		Convert a hexadecimal string into Binary
+	-c, --convert		Convert a hexadecimal string into ASCII, Binary and Decimal
+	-d, --decimal		Convert a hexadecimal string into Decimal
+	-fh, --floath		Convert a 16-bit hexadecimal string into a Floating-Point number
+	-fs, --floats		Convert a 32-bit hexadecimal string into a Floating-Point number
+	-fd, --floatd		Convert a 64-bit hexadecimal string into a Floating-Point number
+	-fq, --floatq		Convert a 128-bit hexadecimal strint into a Floating-Point number
+	-v, --version		Display version number and exit
+	-h, --help		Display help information and exit
+
+	Please ensure that the hexadecimal string being converted is used as the second argument
+	of the command-line and contains ONLY valid hexadecimal characters (not including '0x'
+	characters). The first argument of the command-line will determine what the input string
+	is to be converted into.
+
+	This script currently supports converting hexadecimal strings into the following formats:
+
+	-- ASCII
+	-- Binary (Base 2)
+	-- Decimal (Base 10)
+	-- Floating-Point (Half / Single / Double & Quadruple precision values)
+
+EXAMPLES
+
+	Convert a hexadecimal string into binary:
+	$ ./hexconv -b 040b18
+
+	Convert a hexadecimal string into ASCII, Binary and Decimal:
+	$ ./hexconv -c 55aa
+
+	Convert a hexadecimal string into a single precision floating-point value:
+	$ ./hexconv -fs 40db3333
+
+	Display help information and exit the tool:
+	$ ./hexconv --help
+
+EOF
+exit 0
+}
+
+function error()
+{
+        ## Colour variable for fancy error output
+        red='\e[1;31m%s\e[0m\n'
+
+        printf "$red" "-----------"
+        printf "$red" "## ERROR ##"
+        printf "$red" "-----------"
+        echo
+}
+
+## Common variables placed outside the functions to save me exporting them
+arg=$2
+##modarg=$(echo $arg | awk '$1=$1' FS= OFS=" ")
+modarg=$(echo $arg | sed 's/./& /g')
+sanarg=$(echo $arg | sed 's|0x||g')
+checkhexlen=$(printf "$arg" | wc -c)
+
+function binary()
+{
+	arg=$1
+	modarg=$(echo $arg | sed 's/./& /g')
+	sanarg=$(echo $arg | sed 's|0x||g')
+
+	## To avoid using 'bc', I simply mapped each hex character to its corresponding binary value using a case statement
+	for i in $modarg;
+	do
+		case "$i" in
+			0)	printf "0000"
+				;;
+			1)	printf "0001"
+				;;
+			2)	printf "0010"
+				;;
+			3)	printf "0011"
+				;;
+			4)	printf "0100"
+				;;
+			5)	printf "0101"
+				;;
+			6)	printf "0110"
+				;;
+			7)	printf "0111"
+				;;
+			8)	printf "1000"
+				;;
+			9)	printf "1001"
+				;;
+			A|a)	printf "1010"
+				;;
+			B|b)	printf "1011"
+				;;
+			C|c)	printf "1100"
+				;;
+			D|d)	printf "1101"
+				;;
+			E|e)	printf "1110"
+				;;
+			F|f)	printf "1111"
+				;;
+			*)	error
+				printf "\nINVALID\n"
+				exit 1
+				;;
+		esac
+	done
+}
+
+## Function for half-precision float values
+function float16()
+{
+	arg=$1
+	modarg=$(echo $arg | sed 's/./& /g')
+        sanarg=$(echo $arg | sed 's|0x||g')
+        checkhexlen=$(printf "$arg" | wc -c)
+
+        binvar=$(binary $arg)
+        binmod=$(printf "$binvar" | sed 's/./& /g')
+        binsign=$(printf "$binmod" | awk '{print $1}')
+        binexp=$(printf "$binmod" | awk '{for(i=2;i<=6;i++) printf $i" "; print ""}' | sed 's| ||g')
+        decexp=$(echo $((2#$binexp)))
+
+        expbias=$(echo $(($decexp-15)))
+        binmant=$(printf "$binmod" | awk '{for(i=7;i<=NF;i++) printf $i" "; print ""}' | sed 's| ||g')
+
+        manformat=$(echo "$binmant" | awk -v FS="" '{for (i=1;i<=NF;i++) printf $i" "}')
+        numarray=("-1" "-2" "-3" "-4" "-5" "-6" "-7" "-8" "-9" "-10")
+        manarray=($manformat)
+
+        for index in ${!manarray[@]}
+        do
+                man=${manarray[$index]}
+                num=${numarray[$index]}
+                if [ "$man" == 1 ]; then
+                        setbit=$(printf "%d\n" $num)
+                        for j in $setbit;
+                        do
+                                echo | awk '{print 2**'$j'}';
+                        done
+                fi
+        done
+}
+
+function float32()
+{
+	arg=$1
+	modarg=$(echo $arg | sed 's/./& /g')
+        sanarg=$(echo $arg | sed 's|0x||g')
+	checkhexlen=$(printf "$arg" | wc -c)
+
+	## Variables breaking down the binary conversion
+	binvar=$(binary $arg)
+	binmod=$(printf "$binvar" | sed 's/./& /g')
+	binsign=$(printf "$binmod" | awk '{print $1}')
+	binexp=$(printf "$binmod" | awk '{for(i=2;i<=9;i++) printf $i" "; print ""}' | sed 's| ||g')
+	decexp=$(echo $((2#$binexp)))
+
+	## Exponent bias adjustment & mantissa extraction
+	expbias=$(echo $(($decexp-127)))
+	binmant=$(printf "$binmod" | awk '{for(i=10;i<=NF;i++) printf $i" "; print ""}' | sed 's| ||g')
+
+	## Creating the arrarys to be looped and compared
+	manformat=$(echo "$binmant" | awk -v FS="" '{for (i=1;i<=NF;i++) printf $i" "}')
+	numarray=("-1" "-2" "-3" "-4" "-5" "-6" "-7" "-8" "-9" "-10" "-11" "-12" "-13" "-14" "-15" "-16" "-17" "-18" "-19" "-20" "-21" "-22" "-23")
+	manarray=($manformat)
+
+	## For loop iterating through the arrays to identify the set bits and then perform some arithmetic
+	for index in ${!manarray[@]}
+        do
+                man=${manarray[$index]}
+                num=${numarray[$index]}
+                if [ "$man" == 1 ]; then
+			setbit=$(printf "%d\n" $num)
+			for j in $setbit; 
+			do 
+				echo | awk '{print 2**'$j'}'; 
+			done 
+                fi
+        done
+}
+
+function float64()
+{
+	arg=$1
+      	modarg=$(echo $arg | sed 's/./& /g')
+        sanarg=$(echo $arg | sed 's|0x||g')
+        checkhexlen=$(printf "$arg" | wc -c)
+
+	binvar=$(binary $arg)
+        binmod=$(printf "$binvar" | sed 's/./& /g')
+        binsign=$(printf "$binmod" | awk '{print $1}')
+        binexp=$(printf "$binmod" | awk '{for(i=2;i<=12;i++) printf $i" "; print ""}' | sed 's| ||g')
+        decexp=$(echo $((2#$binexp)))
+
+	expbias=$(echo $(($decexp-1023)))
+        binmant=$(printf "$binmod" | awk '{for(i=13;i<=NF;i++) printf $i" "; print ""}' | sed 's| ||g')
+
+	manformat=$(echo "$binmant" | awk -v FS="" '{for (i=1;i<=NF;i++) printf $i" "}')
+        numarray=("-1" "-2" "-3" "-4" "-5" "-6" "-7" "-8" "-9" "-10" "-11" "-12" "-13" "-14" "-15" "-16" "-17" "-18" "-19" "-20" "-21" "-22" "-23" "-24" "-25" "-26" "-27" "-28" "-29" "-30" "-31" "-32" "-33" "-34" "-35" "-36" "-37" "-38" "-39" "-40" "-41" "-42" "-43" "-44" "-45" "-46" "-47" "-48" "-49" "-50" "-51" "-52")
+        manarray=($manformat)
+
+	for index in ${!manarray[@]}
+        do
+                man=${manarray[$index]}
+                num=${numarray[$index]}
+                if [ "$man" == 1 ]; then
+                        setbit=$(printf "%d\n" $num)
+                        for j in $setbit;
+                        do
+                                echo | awk '{print 2**'$j'}';
+                        done
+                fi
+        done
+}
+
+function float128()
+{
+	arg=$1
+    	modarg=$(echo $arg | sed 's/./& /g')
+        sanarg=$(echo $arg | sed 's|0x||g')
+        checkhexlen=$(printf "$arg" | wc -c)
+
+        binvar=$(binary $arg)
+        binmod=$(printf "$binvar" | sed 's/./& /g')
+        binsign=$(printf "$binmod" | awk '{print $1}')
+        binexp=$(printf "$binmod" | awk '{for(i=2;i<=16;i++) printf $i" "; print ""}' | sed 's| ||g')
+        decexp=$(echo $((2#$binexp)))
+
+        expbias=$(echo $(($decexp-16383)))
+        binmant=$(printf "$binmod" | awk '{for(i=17;i<=NF;i++) printf $i" "; print ""}' | sed 's| ||g')
+
+        manformat=$(echo "$binmant" | awk -v FS="" '{for (i=1;i<=NF;i++) printf $i" "}')
+        numarray=("-1" "-2" "-3" "-4" "-5" "-6" "-7" "-8" "-9" "-10" "-11" "-12" "-13" "-14" "-15" "-16" "-17" "-18" "-19" "-20" "-21" "-22" "-23" "-24" "-25" "-26" "-27" "-28" "-29" "-30" "-31" "-32" "-33" "-34" "-35" "-36" "-37" "-38" "-39" "-40" "-41" "-42" "-43" "-44" "-45" "-46" "-47" "-48" "-49" "-50" "-51" "-52" "-53" "-54" "-55" "-56" "-57" "-58" "-59" "-60" "-61" "-62" "-63" "-64" "-65" "-66" "-67" "-68" "-69" "-70" "-71" "-72" "-73" "-74" "-75" "-76" "-77" "-78" "-79" "-80" "-81" "-82" "-83" "-84" "-85" "-86" "-87" "-88" "-89" "-90" "-91" "-92" "-93" "-94" "-95" "-96" "-97" "-98" "-99" "-100" "-101" "-102" "-103" "-104" "-105" "-106" "-107" "-108" "-109" "-110" "-111" "-112")
+        manarray=($manformat)
+
+        for index in ${!manarray[@]}
+        do
+                man=${manarray[$index]}
+                num=${numarray[$index]}
+                if [ "$man" == 1 ]; then
+                        setbit=$(printf "%d\n" $num)
+                        for j in $setbit;
+                        do
+                                echo | awk '{print 2**'$j'}';
+                        done
+                fi
+        done
+}
+
+## Primary case statement
+case "$1" in
+	-a|--ascii)	if [ $# -ne 2 ]; then
+				error
+				printf "Please enter the hexadecimal string as one argument\n"
+				exit 1
+			elif [[ "$arg" == *"0x"* ]] || [[ "$arg" == *"0X"* ]]; then
+				error
+				printf "Please omit '0x' characters from the input\n"
+				printf "Output should be:\t"$sanarg"\n"
+				exit 1
+			elif ! [[ $arg =~ ^[0-9A-Fa-f]{1,}$ ]]; then
+				error
+				printf "Please enter a valid hexadecimal string\n"
+				exit 1
+			else
+				ascii=$(for char in $(echo "$arg" | sed "s/\(..\)/\1 /g" | tr -d '\x00'); do printf `echo "\x$char"`;done)
+                        	printf "ASCII:\t\t$ascii\n"
+                        	exit 0
+			fi
+			;;
+	-b|--binary)	if [ $# -ne 2 ]; then
+				error
+				printf "Please enter the hexadecimal string as one argument\n"
+				exit 1
+			elif [[ "$arg" == *"0x"* ]] || [[ "$arg" == *"0X"* ]]; then
+				error
+				printf "Please omit '0x' characters from the input\n"
+				printf "Output should be:\t"$sanarg"\n"
+				exit 1
+			elif ! [[ $arg =~ ^[0-9A-Fa-f]{1,}$ ]]; then
+				error
+				printf "Please enter a valid hexadecimal string\n"
+				exit 1
+			else	
+				binvar=$(binary $2)
+		 		printf "BINARY:\t\t$binvar\n"
+				exit 0
+			fi
+			;;
+	-c|--convert)	if [ $# -ne 2 ]; then
+				error
+				printf "Please enter the hexadecimal string as one argument\n"
+				exit 1
+			elif [[ "$arg" == *"0x"* ]] || [[ "$arg" == *"0X"* ]]; then
+				error
+				printf "Please omit '0x' characters from the input\n"
+				printf "Output should be:\t"$sanarg"\n"
+				exit 1
+			elif ! [[ $arg =~ ^[0-9A-Fa-f]{1,}$ ]]; then
+				error
+				printf "Please enter a valid hexadecimal string\n"
+				exit 1
+			else
+				binvar=$(binary $2)
+				ascii=$(for char in $(echo "$arg" | sed "s/\(..\)/\1 /g" | tr -d '\x00'); do printf `echo "\x$char"`;done)	
+				decimal=$(echo -n "$arg" | sed 's|0x||g' | sed 's| ||g' | sed 's|^|0x|' | xargs printf "%f\n" | sed 's|\..*||g')
+				printf "ASCII:\t\t$ascii\n"
+				printf "BINARY:\t\t$binvar\n"
+				printf "DECIMAL:\t$decimal\n"
+				exit 0
+			fi
+			;;
+	-d|--decimal)	if [ $# -ne 2 ]; then
+				error
+				printf "Please enter the hexadecimal string as one argument\n"
+				exit 1
+			elif [[ "$arg" == *"0x"* ]] || [[ "$arg" == *"0X"* ]]; then
+				error
+				printf "Please omit '0x' characters from the input\n"
+				printf "Output should be:\t"$sanarg"\n"
+				exit 1
+			elif ! [[ $arg =~ ^[0-9A-Fa-f]{1,}$ ]]; then
+				error
+				printf "Please enter a valid hexadecimal string\n"
+				exit 1
+			else
+				decimal=$(echo -n "$arg" | sed 's|0x||g' | sed 's| ||g' | sed 's|^|0x|' | xargs printf "%f\n" | sed 's|\..*||g')
+                        	printf "DECIMAL:\t$decimal\n"
+                        	exit 0
+			fi
+			;;
+	-fd|--floatd)	if [ $# -ne 2 ]; then
+				error
+				printf "Please enter the hexadecimal string as one argument\n"
+				exit 1
+			elif [[ "$arg" == *"0x"* ]] || [[ "$arg" == *"0X"* ]]; then
+				error
+				printf "Please omit '0x' characters from the input\n"
+				printf "Output should be:\t"$sanarg"\n"
+				exit 1
+			elif ! [[ $arg =~ ^[0-9A-Fa-f]{1,}$ ]]; then
+				error
+				printf "Please enter a valid hexadecimal string\n"
+				exit 1
+			elif [ "$checkhexlen" != 16 ]; then
+                                error
+                                printf "Please enter a 64-bit hexadecimal string\n"
+                                printf "A 64-bit hexadecimal string consists of 8 bytes (16 characters)\n"
+                                printf "Your string consists of "$checkhexlen" characters\n"
+                                exit 1
+			else
+				float64var=$(float64 $2 | awk 'BEGIN {sum=0} {sum+=$1} END {printf "%.52f\n", sum}')
+                                binvar=$(binary $arg)
+                                binmod=$(printf "$binvar" | sed 's/./& /g')
+                                binsign=$(printf "$binmod" | awk '{print $1}')
+                                binexp=$(printf "$binmod" | awk '{for(i=2;i<=12;i++) printf $i" "; print ""}' | sed 's| ||g')
+                                decexp=$(echo $((2#$binexp)))
+                                expbias=$(echo $(($decexp-1023)))
+                                binmant=$(printf "$binmod" | awk '{for(i=13;i<=NF;i++) printf $i" "; print ""}' | sed 's| ||g')
+                                printf "SIGN (S):\t\t\t\t$binsign\n"
+                                printf "EXPONENT (E):\t\t\t\t$binexp (Dec. $decexp)\n"
+                                printf "MANTISSA (M):\t\t\t\t$binmant\n"
+                                printf "EXPONENT BIAS ADJUST:\t\t\t$expbias\n"
+
+				if [[ $decexp -eq 0 ]] && [[ $binmant == *"1"* ]]; then
+					## Formula for dealing with subnormal numbers
+					nonsubnorm=$(echo | gawk -M -v ROUNDMODE="Z" '{printf "%.52f\n", (-1)**'$binsign'*2**(-1022)*'$float64var'}')
+					subnorm=$(echo | gawk -M -v ROUNDMODE="Z" '{print (-1)**'$binsign'*2**(-1022)*'$float64var'}')
+					nonsubnormcheck=$(echo $nonsubnorm | awk -F '.' '{print $1}')
+					subnormcheck=$(echo $subnorm | awk -F '.' '{print $1}')
+					if [ $nonsubnormcheck == $subnormcheck ]; then
+						printf "\nDOUBLE-PRECISION FLOATING NUMBER:\t$nonsubnorm\n"
+						exit 0
+					else
+						printf "\nDOUBLE-PRECISION FLOATING NUMBER:\t$nonsubnorm\n"
+						printf "NORMALIZED FLOATING NUMBER:\t\t$subnorm\n"
+						exit 0
+					fi	
+				elif [[ $decexp -eq 0 ]] && [[ $binmant != *"1"* ]] && [[ $binsign -eq 1 ]]; then
+					## Account for negative zero
+					printf "\nDOUBLE-PRECISION FLOATING NUMBER:\t-0\n"
+					exit 0
+				elif [[ $decexp -eq 0 ]] && [[ $binmant != *"1"* ]] && [[ $binsign -eq 0 ]]; then
+					## Account for positive zero
+					printf "\nDOUBLE-PRECISION FLOATING NUMBER:\t0\n"
+					exit 0
+				elif [[ $decexp -eq 2047 ]] && [[ $binmant != *"1"* ]] && [[ $binsign -eq 1 ]]; then
+					## Account for negative infinity
+					printf "\nDOUBLE-PRECISION FLOATING NUMBER:\t-INF (Negative Infinity)\n"
+					exit 0
+				elif [[ $decexp -eq 2047 ]] && [[ $binmant != *"1"* ]] && [[ $binsign -eq 0 ]]; then
+					## Account for positive infinity
+					printf "\nDOUBLE-PRECISION FLOATING NUMBER:\t+INF (Positive Infinity)\n"
+					exit 0
+				elif [[ $decexp -eq 2047 ]] && [[ $binmant == *"1"* ]]; then
+					## Account for improper numbers
+					printf "\nDOUBLE-PRECISION FLOATING NUMBER:\tNaN (Not a Number)\n"
+					exit 0
+				else
+					## Formula for dealing with normal numbers and very small float values
+					nonnorm=$(echo | gawk -M -v ROUNDMODE="Z" '{printf "%.52f\n", (-1)**'$binsign'*2**('$decexp'-1023)*(1+'$float64var')}')
+					norm=$(echo | gawk -M -v ROUNDMODE="Z" '{print (-1)**'$binsign'*2**('$decexp'-1023)*(1+'$float64var')}')
+					nonnormcheck=$(echo $nonnorm | awk -F '.' '{print $1}')
+					normcheck=$(echo $norm | awk -F '.' '{print $1}')
+					if [ $nonnormcheck == $normcheck ]; then
+						printf "\nDOUBLE-PRECISION FLOATING NUMBER:\t$nonnorm\n"
+						exit 0
+					else
+						printf "\nDOUBLE-PRECISION FLOATING NUMBER:\t$nonnorm\n"
+						printf "NORMALIZED FLOATING NUMBER:\t\t$norm\n"
+						exit 0
+					fi
+				fi
+			fi
+			;;
+	-fh|--floath)	if [ $# -ne 2 ]; then
+				error
+				printf "Please enter the hexadecimal string as one argument\n"
+				exit 1
+			elif [[ "$arg" == *"0x"* ]] || [[ "$arg" == *"0X"* ]]; then
+				error
+				printf "Please omit '0x' characters from the input\n"
+				printf "Output should be:\t"$sanarg"\n"
+				exit 1
+			elif ! [[ $arg =~ ^[0-9A-Fa-f]{1,}$ ]]; then
+				error
+				printf "Please enter a valid hexadecimal string\n"
+				exit 1
+			elif [ "$checkhexlen" != 4 ]; then
+                                error
+                                printf "Please enter a 16-bit hexadecimal string\n"
+                                printf "A 16-bit hexadecimal string consists of 2 bytes (4 characters)\n"
+                                printf "Your string consists of "$checkhexlen" characters\n"
+                                exit 1
+                        else
+                                float16var=$(float16 $2 | awk 'BEGIN {sum=0} {sum+=$1} END {printf "%.15f\n", sum}')
+                                binvar=$(binary $arg)
+                                binmod=$(printf "$binvar" | sed 's/./& /g')
+                                binsign=$(printf "$binmod" | awk '{print $1}')
+                                binexp=$(printf "$binmod" | awk '{for(i=2;i<=6;i++) printf $i" "; print ""}' | sed 's| ||g')
+                                decexp=$(echo $((2#$binexp)))
+                                expbias=$(echo $(($decexp-15)))
+                                binmant=$(printf "$binmod" | awk '{for(i=7;i<=NF;i++) printf $i" "; print ""}' | sed 's| ||g')
+                                printf "SIGN (S):\t\t\t\t$binsign\n"
+                                printf "EXPONENT (E):\t\t\t\t$binexp (Dec. $decexp)\n"
+                                printf "MANTISSA (M):\t\t\t\t$binmant\n"
+                                printf "EXPONENT BIAS ADJUST:\t\t\t$expbias\n"
+				
+				if [[ $decexp -eq 0 ]] && [[ $binmant == *"1"* ]]; then
+					## Formula for dealing with subnormal numbers
+					nonsubnorm=$(echo | gawk -M -v ROUNDMODE="Z" '{printf "%.15f\n", (-1)**'$binsign'*2**(-14)*'$float16var'}')
+					subnorm=$(echo | gawk -M -v ROUNDMODE="Z" '{print (-1)**'$binsign'*2**(-14)*'$float16var'}')
+					nonsubnormcheck=$(echo $nonsubnorm | awk -F '.' '{print $1}')
+					subnormcheck=$(echo $subnorm | awk -F '.' '{print $1}')
+					if [ $nonsubnormcheck == $subnormcheck ]; then
+						printf "\nHALF-PRECISION FLOATING NUMBER:\t\t$nonsubnorm\n"
+						exit 0
+					else
+						printf "\nHALF-PRECISION FLOATING NUMBER:\t\t$nonsubnorm\n"
+						printf "NORMALIZED FLOATING NUMBER:\t\t$subnorm\n"
+						exit 0
+					fi	
+				elif [[ $decexp -eq 0 ]] && [[ $binmant != *"1"* ]] && [[ $binsign -eq 1 ]]; then
+					## Account for negative zero
+					printf "\nHALF-PRECISION FLOATING NUMBER:\t\t-0\n"
+					exit 0
+				elif [[ $decexp -eq 0 ]] && [[ $binmant != *"1"* ]] && [[ $binsign -eq 0 ]]; then
+					## Account for positive zero
+					printf "\nHALF-PRECISION FLOATING NUMBER:\t\t0\n"
+					exit 0
+				elif [[ $decexp -eq 31 ]] && [[ $binmant != *"1"* ]] && [[ $binsign -eq 1 ]]; then
+					## Account for negative infinity
+					printf "\nHALF-PRECISION FLOATING NUMBER:\t\t-INF (Negative Infinity)\n"
+					exit 0
+				elif [[ $decexp -eq 31 ]] && [[ $binmant != *"1"* ]] && [[ $binsign -eq 0 ]]; then
+					## Account for positive infinity
+					printf "\nHALF-PRECISION FLOATING NUMBER:\t\t+INF (Positive Infinity)\n"
+					exit 0
+				elif [[ $decexp -eq 31 ]] && [[ $binmant == *"1"* ]]; then
+					## Account for improper numbers
+					printf "\nHALF-PRECISION FLOATING NUMBER:\t\tNaN (Not a Number)\n"
+					exit 0
+				else
+					## Formula for dealing with normal numbers and very small float values
+					nonnorm=$(echo | gawk -M -v ROUNDMODE="Z" '{printf "%.15f\n", (-1)**'$binsign'*2**('$decexp'-15)*(1+'$float16var')}')
+					norm=$(echo | gawk -M -v ROUNDMODE="Z" '{print (-1)**'$binsign'*2**('$decexp'-15)*(1+'$float16var')}')
+					nonnormcheck=$(echo $nonnorm | awk -F '.' '{print $1}')
+					normcheck=$(echo $norm | awk -F '.' '{print $1}')
+					if [ $nonnormcheck == $normcheck ]; then
+						printf "\nHALF-PRECISION FLOATING NUMBER:\t\t$nonnorm\n"
+						exit 0
+					else
+						printf "\nHALF-PRECISION FLOATING NUMBER:\t\t$nonnorm\n"
+						printf "NORMALIZED FLOATING NUMBER:\t\t$norm\n"
+						exit 0
+					fi
+				fi
+                        fi
+			;;
+	-fs|--floats)	if [ $# -ne 2 ]; then
+				error
+				printf "Please enter the hexadecimal string as one argument\n"
+				exit 1
+			elif [[ "$arg" == *"0x"* ]] || [[ "$arg" == *"0X"* ]]; then
+				error
+				printf "Please omit '0x' characters from the input\n"
+				printf "Output should be:\t"$sanarg"\n"
+				exit 1
+			elif ! [[ $arg =~ ^[0-9A-Fa-f]{1,}$ ]]; then
+				error
+				printf "Please enter a valid hexadecimal string\n"
+				exit 1
+			elif [ "$checkhexlen" != 8 ]; then
+				error
+				printf "Please enter a 32-bit hexadecimal string\n"
+				printf "A 32-bit hexadecimal string consists of 4 bytes (8 characters)\n"
+				printf "Your string consists of "$checkhexlen" characters\n"
+				exit 1
+			else
+				float32var=$(float32 $2 | awk 'BEGIN {sum=0} {sum+=$1} END {printf "%.28f\n", sum}')
+			        binvar=$(binary $arg)
+			        binmod=$(printf "$binvar" | sed 's/./& /g')
+			        binsign=$(printf "$binmod" | awk '{print $1}')
+			        binexp=$(printf "$binmod" | awk '{for(i=2;i<=9;i++) printf $i" "; print ""}' | sed 's| ||g')
+			        decexp=$(echo $((2#$binexp)))
+			        expbias=$(echo $(($decexp-127)))
+				binmant=$(printf "$binmod" | awk '{for(i=10;i<=NF;i++) printf $i" "; print ""}' | sed 's| ||g')
+				printf "SIGN (S):\t\t\t\t$binsign\n"
+				printf "EXPONENT (E):\t\t\t\t$binexp (Dec. $decexp)\n"
+				printf "MANTISSA (M):\t\t\t\t$binmant\n"
+				printf "EXPONENT BIAS ADJUST:\t\t\t$expbias\n"
+
+				if [[ $decexp -eq 0 ]] && [[ $binmant == *"1"* ]]; then
+					## Formula for dealing with subnormal numbers
+					nonsubnorm=$(echo | gawk -M -v ROUNDMODE="Z" '{printf "%.28f\n", (-1)**'$binsign'*2**(-126)*'$float32var'}')
+					subnorm=$(echo | gawk -M -v ROUNDMODE="Z" '{print (-1)**'$binsign'*2**(-126)*'$float32var'}')
+					nonsubnormcheck=$(echo $nonsubnorm | awk -F '.' '{print $1}')
+					subnormcheck=$(echo $subnorm | awk -F '.' '{print $1}')
+					if [ $nonsubnormcheck == $subnormcheck ]; then
+						printf "\nSINGLE-PRECISION FLOATING NUMBER:\t$nonsubnorm\n"
+						exit 0
+					else
+						printf "\nSINGLE-PRECISION FLOATING NUMBER:\t$nonsubnorm\n"
+						printf "NORMALIZED FLOATING NUMBER:\t\t$subnorm\n"
+						exit 0
+					fi	
+				elif [[ $decexp -eq 0 ]] && [[ $binmant != *"1"* ]] && [[ $binsign -eq 1 ]]; then
+					## Account for negative zero
+					printf "\nSINGLE-PRECISION FLOATING NUMBER:\t-0\n"
+					exit 0
+				elif [[ $decexp -eq 0 ]] && [[ $binmant != *"1"* ]] && [[ $binsign -eq 0 ]]; then
+					## Account for positive zero
+					printf "\nSINGLE-PRECISION FLOATING NUMBER:\t0\n"
+					exit 0
+				elif [[ $decexp -eq 255 ]] && [[ $binmant != *"1"* ]] && [[ $binsign -eq 1 ]]; then
+					## Account for negative infinity
+					printf "\nSINGLE-PRECISION FLOATING NUMBER:\t-INF (Negative Infinity)\n"
+					exit 0
+				elif [[ $decexp -eq 255 ]] && [[ $binmant != *"1"* ]] && [[ $binsign -eq 0 ]]; then
+					## Account for positive infinity
+					printf "\nSINGLE-PRECISION FLOATING NUMBER:\t+INF (Positive Infinity)\n"
+					exit 0
+				elif [[ $decexp -eq 255 ]] && [[ $binmant == *"1"* ]]; then
+					## Account for improper numbers
+					printf "\nSINGLE-PRECISION FLOATING NUMBER:\tNaN (Not a Number)\n"
+					exit 0
+				else
+					## Formula for dealing with normal numbers and very small float values
+					nonnorm=$(echo | gawk -M -v ROUNDMODE="Z" '{printf "%.28f\n", (-1)**'$binsign'*2**('$decexp'-127)*(1+'$float32var')}')
+					norm=$(echo | gawk -M -v ROUNDMODE="Z" '{print (-1)**'$binsign'*2**('$decexp'-127)*(1+'$float32var')}')
+					nonnormcheck=$(echo $nonnorm | awk -F '.' '{print $1}')
+					normcheck=$(echo $norm | awk -F '.' '{print $1}')
+					if [ $nonnormcheck == $normcheck ]; then
+						printf "\nSINGLE-PRECISION FLOATING NUMBER:\t$nonnorm\n"
+						exit 0
+					else
+						printf "\nSINGLE-PRECISION FLOATING NUMBER:\t$nonnorm\n"
+						printf "NORMALIZED FLOATING NUMBER:\t\t$norm\n"
+						exit 0
+					fi
+				fi
+			fi
+			;;
+	-fq|--floatq)	if [ $# -ne 2 ]; then
+				error
+				printf "Please enter the hexadecimal string as one argument\n"
+				exit 1
+			elif [[ "$arg" == *"0x"* ]] || [[ "$arg" == *"0X"* ]]; then
+				error
+				printf "Please omit '0x' characters from the input\n"
+				printf "Output should be:\t"$sanarg"\n"
+				exit 1
+			elif ! [[ $arg =~ ^[0-9A-Fa-f]{1,}$ ]]; then
+				error
+				printf "Please enter a valid hexadecimal string\n"
+				exit 1
+			elif [ "$checkhexlen" != 32 ]; then
+                                error
+                                printf "Please enter a 128-bit hexadecimal string\n"
+                                printf "A 128-bit hexadecimal string consists of 16 bytes (32 characters)\n"
+                                printf "Your string consists of "$checkhexlen" characters\n"
+                                exit 1
+                        else
+                                float128var=$(float128 $2 | awk 'BEGIN {sum=0} {sum+=$1} END {printf "%.113f\n", sum}')
+                                binvar=$(binary $arg)
+                                binmod=$(printf "$binvar" | sed 's/./& /g')
+                                binsign=$(printf "$binmod" | awk '{print $1}')
+                                binexp=$(printf "$binmod" | awk '{for(i=2;i<=16;i++) printf $i" "; print ""}' | sed 's| ||g')
+                                decexp=$(echo $((2#$binexp)))
+                                expbias=$(echo $(($decexp-16383)))
+                                binmant=$(printf "$binmod" | awk '{for(i=17;i<=NF;i++) printf $i" "; print ""}' | sed 's| ||g')
+                                printf "SIGN (S):\t\t\t\t$binsign\n"
+                                printf "EXPONENT (E):\t\t\t\t$binexp (Dec. $decexp)\n"
+                                printf "MANTISSA (M):\t\t\t\t$binmant\n"
+                                printf "EXPONENT BIAS ADJUST:\t\t\t$expbias\n"
+                                
+				if [[ $decexp -eq 0 ]] && [[ $binmant == *"1"* ]]; then
+					## Formula for dealing with subnormal numbers
+					nonsubnorm=$(echo | gawk -M -v ROUNDMODE="Z" '{printf "%.113f\n", (-1)**'$binsign'*2**(-16382)*'$float128var'}')
+					subnorm=$(echo | gawk -M -v ROUNDMODE="Z" '{print (-1)**'$binsign'*2**(-16382)*'$float128var'}')
+					nonsubnormcheck=$(echo $nonsubnorm | awk -F '.' '{print $1}')
+					subnormcheck=$(echo $subnorm | awk -F '.' '{print $1}')
+					if [ $nonsubnormcheck == $subnormcheck ]; then
+						printf "\nQUAD-PRECISION FLOATING NUMBER:\t\t$nonsubnorm\n"
+						exit 0
+					else
+						printf "\nQUAD-PRECISION FLOATING NUMBER:\t\t$nonsubnorm\n"
+						printf "NORMALIZED FLOATING NUMBER:\t\t$subnorm\n"
+						exit 0
+					fi	
+				elif [[ $decexp -eq 0 ]] && [[ $binmant != *"1"* ]] && [[ $binsign -eq 1 ]]; then
+					## Account for negative zero
+					printf "\nQUAD-PRECISION FLOATING NUMBER:\t\t-0\n"
+					exit 0
+				elif [[ $decexp -eq 0 ]] && [[ $binmant != *"1"* ]] && [[ $binsign -eq 0 ]]; then
+					## Account for positive zero
+					printf "\nQUAD-PRECISION FLOATING NUMBER:\t\t0\n"
+					exit 0
+				elif [[ $decexp -eq 32767 ]] && [[ $binmant != *"1"* ]] && [[ $binsign -eq 1 ]]; then
+					## Account for negative infinity
+					printf "\nQUAD-PRECISION FLOATING NUMBER:\t\t-INF (Negative Infinity)\n"
+					exit 0
+				elif [[ $decexp -eq 32767 ]] && [[ $binmant != *"1"* ]] && [[ $binsign -eq 0 ]]; then
+					## Account for positive infinity
+					printf "\nQUAD-PRECISION FLOATING NUMBER:\t\t+INF (Positive Infinity)\n"
+					exit 0
+				elif [[ $decexp -eq 32767 ]] && [[ $binmant == *"1"* ]]; then
+					## Account for improper numbers
+					printf "\nQUAD-PRECISION FLOATING NUMBER:\t\tNaN (Not a Number)\n"
+					exit 0
+				else
+					## Formula for dealing with normal numbers and very small float values
+					nonnorm=$(echo | gawk -M -v PREC="113" -v ROUNDMODE="Z" '{printf "%.113f\n", (-1)**'$binsign'*2**('$decexp'-16383)*(1+'$float128var')}')
+					norm=$(echo | gawk -M -v ROUNDMODE="Z" '{print (-1)**'$binsign'*2**('$decexp'-16383)*(1+'$float128var')}')
+					nonnormcheck=$(echo $nonnorm | awk -F '.' '{print $1}')
+					normcheck=$(echo $norm | awk -F '.' '{print $1}')
+					if [ $nonnormcheck == $normcheck ]; then
+						printf "\nQUAD-PRECISION FLOATING NUMBER:\t\t$nonnorm\n"
+						exit 0
+					else
+						printf "\nQUAD-PRECISION FLOATING NUMBER:\t\t$nonnorm\n"
+						printf "NORMALIZED FLOATING NUMBER:\t\t$norm\n"
+						exit 0
+					fi
+				fi
+                        fi
+			;;
+	-h|--help)	usage
+			;;
+	-v|--version)	printf "$hexconv_version\n"
+			exit 0
+			;;
+	*) 		usage
+			;;
+esac
