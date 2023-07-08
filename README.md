@@ -66,4 +66,3 @@ $   ./hexconv --help
 ## KNOWN ISSUES 
 
 * There are issues in the ASCII conversion when handling NULL bytes (Caused by how BASH handles parameters as C-strings).
-* This script is currently only capable of handling 16-bit, 32-bit, 64-bit and 128-bit hexadecimal values for conversion into floating-point numbers.
