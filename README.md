@@ -1,16 +1,10 @@
 # HexConv
-## ABOUT
+
 A BASH script designed to take a hexadecimal string as an input value and convert it into various other formats, including; ASCII, Binary, Decimal, etc.
 
-Since delving into the world of reverse-engineering, I have been playing around a lot recently with a disassembly tool called `radare2`. Throughout this learning process, I have written basic `C` programs to aid with understanding how to disassemble the resulting compiled binary.
+## ABOUT
 
-One of the programs I wrote was simply a series of variables, initalised with varying values. One of these values was a floating-point number specified as a 'double' data-type. Upon disassembling the binary, I found that a hexadecimal value was being pushed into the register corresponding with this variable. However, I was unsure how to interpret the hexadecimal value.
-
-Thus began my research into the fascinating mathematics behind floating-point binary numbers. Wherein I discovered how to manually convert a given 32-bit (Short Real) or 64-bit (Long Real) hexadecimal string into a floating-point number.
-
-As always, I decided to conclude my research by creating a script to do this conversion for me. To which I chose BASH, since I predominantly work on Linux systems and I believed it would provide an interesting challenge.
-
-Interestingly, I had created a Hexadecimal-Converter BASH script some years ago, which was very basic and only converted a given string into ASCII, Binary and Decimal. I was able to re-purpose some of its code into the BASH script outlined below. To make things extra challenging for myself, I decided to use pure BASH logic and remove any reliance on external tools such as `bc`.
+This is a relatively simple BASH script which takes a hexadecimal string as input value, and outputs various other formats of this same string. This script currently supports converting hexadecimal strings into the following output formats: ASCII, binary (Base 2), decimal (Base 10), and floating-point numbers (16-bit, 32-bit, 64-bit and 128-bit). One of the design goals for this script was to ensure that it could work on most default Linux distributions, meaning there is no over-reliance on unique tools.
 
 ## USAGE
 
@@ -32,13 +26,6 @@ $   ./hexconv [-arg/--argument] [HEXADECIMAL STRING]
 * `-h`, `--help`:     Display help information and exit
 
 Please ensure that the hexadecimal string being converted is used as the second argument of the command-line and contains ONLY valid hexadecimal characters (not including `0x` characters). The first argument of the command-line will determine what the input string is to be converted into.
-
-This script currently supports converting hexadecimal strings into the following formats:
-
-* ASCII
-* Binary (Base 2)
-* Decimal (Base 10)
-* Floating-Point (Half / Single / Double & Quadruple precision values)
 
 ## EXAMPLES
 
@@ -76,8 +63,7 @@ $   ./hexconv --help
 * v2.60 (2021-05-05):  Completely reworked the logic used to calculate floating point values. Added more precision to the output of floating point numbers using `awk`. All tested and converting as intended.
 * v2.61 (2021-05-05):  Hotfix for an error which was thrown when a single argument was supplied to the script.    
 
-## KNOWN ISSUES / FUTURE CHANGES  
+## KNOWN ISSUES 
 
-There are issues in the ASCII conversion when handling NULL bytes (Caused by how BASH handles parameters as C-strings). I have tried to account for this as much as possible in the code.
-
-This script is currently only capable of handling 16-bit, 32-bit, 64-bit and 128-bit hexadecimal values for conversion into floating-point numbers. Logic supporting 8-bit (or other) values might be implemented in a future revision.
+* There are issues in the ASCII conversion when handling NULL bytes (Caused by how BASH handles parameters as C-strings).
+* This script is currently only capable of handling 16-bit, 32-bit, 64-bit and 128-bit hexadecimal values for conversion into floating-point numbers.
