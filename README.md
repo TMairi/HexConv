@@ -4,7 +4,7 @@ A BASH script designed to take a hexadecimal string as an input value and conver
 
 ## ABOUT
 
-This is a relatively simple BASH script which takes a hexadecimal string as input value, and outputs various other formats of this same string. This script currently supports converting hexadecimal strings into the following output formats: ASCII, binary (Base 2), decimal (Base 10), and floating-point numbers (16-bit, 32-bit, 64-bit and 128-bit). One of the design goals for this script was to ensure that it could work on most default Linux distributions, meaning there is no over-reliance on unique tools.
+This is a relatively simple BASH script which takes a hexadecimal string as an input value, and produces an output of this string in a different format. This script currently supports converting hexadecimal strings into the following output formats: ASCII, binary (Base 2), decimal (Base 10), and floating-point numbers (16-bit, 32-bit, 64-bit and 128-bit). One of the design goals for this script was to ensure that it could work on most default Linux distributions, meaning there is no over-reliance on unique tools.
 
 ## USAGE
 
